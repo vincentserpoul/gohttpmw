@@ -1,1 +1,1 @@
-# Useful Go HTTP middlewares
+# Useful Go HTTP middlewares [![Go Report Card](https://goreportcard.com/badge/github.com/vincentserpoul/gohttpmw)](https://goreportcard.com/report/github.com/vincentserpoul/gohttpmw) [![CircleCI](https://circleci.com/gh/vincentserpoul/gohttpmw.svg?style=svg)](https://circleci.com/gh/vincentserpoul/gohttpmw) [![Coverage Status](https://coveralls.io/repos/github/vincentserpoul/gohttpmw/badge.svg?branch=master)](https://coveralls.io/github/vincentserpoul/gohttpmw?branch=master)
