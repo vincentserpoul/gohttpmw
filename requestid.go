@@ -24,7 +24,9 @@ func RequestID() func(http.Handler) http.Handler {
 				ContextKeyRequestID,
 				requestID,
 			)
-			h.ServeHTTP(w, r.WithContext(ctx))
+			// We don't want to lose the reference to the Request
+			*r = *r.WithContext(ctx)
+			h.ServeHTTP(w, r)
 		})
 	}
 }
