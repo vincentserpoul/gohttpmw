@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
 )
 
@@ -48,7 +47,7 @@ func Logger(logger *zap.SugaredLogger) func(http.Handler) http.Handler {
 			naw := newAugmentedResponseWriter(w)
 			h.ServeHTTP(naw, r)
 
-			if reqID := GetRequestID(r.Context()); reqID != ksuid.Nil {
+			if reqID := GetRequestID(r.Context()); reqID != "" {
 				logger = logger.With("request_id", reqID)
 			}
 
@@ -96,4 +95,10 @@ func GetRequestError(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// SetRequestError sets the error in the context so it can be picked up
+// for logging
+func SetRequestError(r *http.Request, err error) {
+	*r = *r.WithContext(context.WithValue(r.Context(), ContextKeyRequestError, err))
 }

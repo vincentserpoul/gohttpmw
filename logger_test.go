@@ -113,7 +113,7 @@ func TestLoggerCompleteness(t *testing.T) {
 						context.WithValue(
 							req.Context(),
 							ContextKeyRequestID,
-							ksuid.New(),
+							ksuid.New().String(),
 						),
 					)
 					w.WriteHeader(http.StatusOK)
@@ -161,7 +161,7 @@ func TestLoggerCompleteness(t *testing.T) {
 			sugar := zap.New(logger).Sugar()
 			midWared := Logger(sugar)(tt.handler)
 			rr := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", ``, nil)
+			r := httptest.NewRequest("GET", "/", nil)
 			r.RemoteAddr = "127.0.0.1"
 			r.Header.Set("User-Agent", "test")
 			if tt.withHTTPS {
@@ -223,109 +223,6 @@ func TestLoggerCompleteness(t *testing.T) {
 	}
 }
 
-// func TestLoggerData(t *testing.T) {
-// 	reqIDTest := ksuid.New()
-// 	tc := []struct {
-// 		name                string
-// 		handler             http.HandlerFunc
-// 		requestError        ksuid.KSUID
-// 		RequestErrorMessage string
-// 		expectedLen         int
-// 	}{
-// 		{
-// 			name: "classic request log",
-// 			handler: http.HandlerFunc(
-// 				func(w http.ResponseWriter, req *http.Request) {
-// 					w.WriteHeader(http.StatusOK)
-// 				}),
-// 			RequestErrorMessage: "",
-// 		},
-// 		{
-// 			name:      "classic request log with request ID",
-// 			requestID: reqIDTest,
-// 			handler: http.HandlerFunc(
-// 				func(w http.ResponseWriter, req *http.Request) {
-// 					w.WriteHeader(http.StatusOK)
-// 				}),
-// 			RequestErrorMessage: "",
-// 		},
-// 		{
-// 			name: "classic request log with some bytes written",
-// 			handler: http.HandlerFunc(
-// 				func(w http.ResponseWriter, req *http.Request) {
-// 					_, _ = w.Write([]byte{0x00})
-// 					w.WriteHeader(http.StatusOK)
-// 				}),
-// 			RequestErrorMessage: "",
-// 			expectedLen:         1,
-// 		},
-// 		{
-// 			name: "request log with error",
-// 			handler: http.HandlerFunc(
-// 				func(w http.ResponseWriter, req *http.Request) {
-// 					*req = *req.WithContext(
-// 						context.WithValue(
-// 							req.Context(),
-// 							ErrRequestContextKey,
-// 							errors.New("test error big"),
-// 						),
-// 					)
-// 					w.WriteHeader(http.StatusInternalServerError)
-// 				}),
-// 			RequestErrorMessage: "test error big",
-// 		},
-// 	}
-
-// 	for _, tt := range tc {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			logger, hook := test.NewNullLogger()
-// 			midWared := Logger(logger)(tt.handler)
-// 			rr := httptest.NewRecorder()
-// 			r, _ := http.NewRequest("GET", ``, nil)
-// 			r.RemoteAddr = "127.0.0.1"
-// 			r.Header.Set("User-Agent", "test")
-// 			if tt.requestID != ksuid.Nil {
-// 				*r = *r.WithContext(
-// 					context.WithValue(
-// 						r.Context(),
-// 						ContextKeyRequestID,
-// 						reqIDTest,
-// 					),
-// 				)
-// 			}
-// 			midWared.ServeHTTP(rr, r)
-
-// 			if len(hook.Entries) > 1 {
-// 				t.Errorf("got %d logs instead of 1", len(hook.Entries))
-// 				return
-// 			}
-
-// 			if tt.requestID != ksuid.Nil &&
-// 				hook.LastEntry().Data["request_id"] != tt.requestID {
-// 				t.Errorf(
-// 					"missing requestid, expected %s, got %s",
-// 					tt.requestID, hook.LastEntry().Data["request_id"])
-// 				return
-// 			}
-
-// 			if string(hook.LastEntry().Message) != tt.RequestErrorMessage {
-// 				t.Errorf(
-// 					"missing error message `%s` in log, got `%s`",
-// 					tt.RequestErrorMessage, hook.LastEntry().Message)
-// 				return
-// 			}
-
-// 			if tt.expectedLen != hook.LastEntry().Data["resp_length"] {
-// 				t.Errorf(
-// 					"expected length %d got %d",
-// 					tt.expectedLen, hook.LastEntry().Data["resp_length"])
-// 				return
-// 			}
-
-// 		})
-// 	}
-// }
-
 func Test_augmentedResponseWriter_Write(t *testing.T) {
 	rr := httptest.NewRecorder()
 	arw := newAugmentedResponseWriter(rr)
@@ -338,4 +235,14 @@ func Test_augmentedResponseWriter_Write(t *testing.T) {
 		return
 	}
 
+}
+
+func TestSetRequestError(t *testing.T) {
+	err := fmt.Errorf("test")
+	req := httptest.NewRequest("GET", "/", nil)
+	SetRequestError(req, err)
+	if GetRequestError(req.Context()) != err {
+		t.Errorf("SetRequestError didn't set the error in the context")
+		return
+	}
 }

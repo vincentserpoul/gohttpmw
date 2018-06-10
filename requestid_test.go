@@ -27,24 +27,15 @@ func TestRequestID(t *testing.T) {
 }
 
 func TestGetRequestID(t *testing.T) {
-	var reqID ksuid.KSUID
-
 	ctx := context.Background()
-	reqID = GetRequestID(ctx)
-	if reqID != ksuid.Nil {
+	if reqID := GetRequestID(ctx); reqID != "" {
 		t.Errorf("expected nothing, got %s", reqID)
+		return
 	}
 
-	ctx = context.WithValue(ctx, ContextKeyRequestID, "testString")
-	reqID = GetRequestID(ctx)
-	if reqID != ksuid.Nil {
-		t.Errorf("expected nothing, got %s", reqID)
-	}
-
-	requestID := ksuid.New()
-	ctx = context.WithValue(ctx, ContextKeyRequestID, requestID)
-	reqID = GetRequestID(ctx)
-	if reqID != requestID {
-		t.Errorf("expected %s, got %s", requestID.String(), reqID)
+	testReq := ksuid.New().String()
+	if reqID := GetRequestID(context.WithValue(ctx, ContextKeyRequestID, testReq)); reqID != testReq {
+		t.Errorf("expected %s, got %s", testReq, reqID)
+		return
 	}
 }

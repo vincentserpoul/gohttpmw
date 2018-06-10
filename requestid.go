@@ -32,10 +32,10 @@ func RequestID() func(http.Handler) http.Handler {
 }
 
 // GetRequestID will retrieve the request id from the context if there is one
-func GetRequestID(ctx context.Context) ksuid.KSUID {
-	if reqID, ok := ctx.Value(ContextKeyRequestID).(ksuid.KSUID); ok {
+func GetRequestID(ctx context.Context) string {
+	if reqID, ok := ctx.Value(ContextKeyRequestID).(string); ok {
 		return reqID
 	}
 
-	return ksuid.Nil
+	return ""
 }
