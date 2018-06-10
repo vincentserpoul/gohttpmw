@@ -38,6 +38,7 @@ func TestGetRequestError(t *testing.T) {
 	}
 }
 
+// nolint[:gocyclo]
 func TestLoggerCompleteness(t *testing.T) {
 	expectedNonEmptyFields := []string{
 		"http_scheme",
@@ -189,7 +190,8 @@ func TestLoggerCompleteness(t *testing.T) {
 				case "scheme":
 					if tt.withHTTPS && f.String != "https" {
 						t.Errorf(
-							"wrong http scheme detected, expected https, got %s",
+							"wrong http scheme detected, expected %s, got %s",
+							"https",
 							f.String,
 						)
 						return

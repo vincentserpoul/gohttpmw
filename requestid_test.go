@@ -34,7 +34,9 @@ func TestGetRequestID(t *testing.T) {
 	}
 
 	testReq := ksuid.New().String()
-	if reqID := GetRequestID(context.WithValue(ctx, ContextKeyRequestID, testReq)); reqID != testReq {
+	if reqID := GetRequestID(
+		context.WithValue(ctx, ContextKeyRequestID, testReq),
+	); reqID != testReq {
 		t.Errorf("expected %s, got %s", testReq, reqID)
 		return
 	}
