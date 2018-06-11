@@ -30,5 +30,4 @@ These are not sufficient, you will need to add more according to the context of 
 ## Logger
 
 Add logs to the request
-
 _If you use other middlewares, make sure they don't change the reference to the request_
