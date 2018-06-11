@@ -1,11 +1,10 @@
 package gohttpmw
 
 import (
-	"context"
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/rs/zerolog"
 )
 
 type augmentedResponseWriter struct {
@@ -39,7 +38,7 @@ func newAugmentedResponseWriter(
 }
 
 // Logger will return an error if the required params are not there
-func Logger(logger *zap.SugaredLogger) func(http.Handler) http.Handler {
+func Logger(logger zerolog.Logger) func(http.Handler) http.Handler {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -47,61 +46,41 @@ func Logger(logger *zap.SugaredLogger) func(http.Handler) http.Handler {
 			naw := newAugmentedResponseWriter(w)
 			h.ServeHTTP(naw, r)
 
+			// Copy the context into a new logger
+			l := logger.With().Logger()
+
 			if reqID := GetRequestID(r.Context()); reqID != "" {
-				logger = logger.With("request_id", reqID)
+				l = l.With().Str("request_id", reqID).Logger()
 			}
 
 			scheme := "http"
 			if r.TLS != nil {
 				scheme = "https"
 			}
-			logger = logger.With(
-				"http_scheme", scheme,
-				"http_proto", r.Proto,
-				"http_method", r.Method,
-				"remote_addr", r.RemoteAddr,
-				"user_agent", r.UserAgent(),
-				"host", r.Host,
-				"uri", r.RequestURI,
-				"process_time", time.Since(startTime),
-				"http_status", naw.httpStatus,
-				"resp_length", naw.length,
-			)
+			l = l.With().
+				Str("http_scheme", scheme).
+				Str("http_proto", r.Proto).
+				Str("http_method", r.Method).
+				Str("remote_addr", r.RemoteAddr).
+				Str("user_agent", r.UserAgent()).
+				Str("host", r.Host).
+				Str("uri", r.RequestURI).
+				Dur("process_time", time.Since(startTime)).
+				Int("http_status", naw.httpStatus).
+				Int("resp_length", naw.length).Logger()
 
 			reqErr := GetRequestError(r.Context())
 			if reqErr != nil {
 				// Get response status and size
 				if naw.httpStatus == http.StatusInternalServerError {
-					logger.Error(reqErr)
+					l.Error().Msg(reqErr.Error())
 					return
 				}
-				logger.Warn(reqErr)
+				l.Warn().Msg(reqErr.Error())
 				return
 			}
 
-			logger.Info()
-
+			l.Info().Msg("")
 		})
 	}
-}
-
-// ContextKeyRequestError will allow the error to be passed down
-const ContextKeyRequestError = ContextKey("requestError")
-
-// GetRequestError will retrieve the request error
-// from the context if there is one
-func GetRequestError(ctx context.Context) error {
-	if reqErr, ok := ctx.Value(ContextKeyRequestError).(error); ok {
-		return reqErr
-	}
-
-	return nil
-}
-
-// SetRequestError sets the error in the context so it can be picked up
-// for logging
-func SetRequestError(r *http.Request, err error) {
-	*r = *r.WithContext(
-		context.WithValue(r.Context(), ContextKeyRequestError, err),
-	)
 }

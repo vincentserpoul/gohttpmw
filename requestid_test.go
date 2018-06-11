@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/segmentio/ksuid"
+	"github.com/rs/xid"
 )
 
 func TestRequestID(t *testing.T) {
@@ -33,7 +33,7 @@ func TestGetRequestID(t *testing.T) {
 		return
 	}
 
-	testReq := ksuid.New().String()
+	testReq := xid.New().String()
 	if reqID := GetRequestID(
 		context.WithValue(ctx, ContextKeyRequestID, testReq),
 	); reqID != testReq {

@@ -1,66 +1,30 @@
 package gohttpmw
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/segmentio/ksuid"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
+	"github.com/rs/xid"
+	"github.com/rs/zerolog"
 )
-
-func TestGetRequestError(t *testing.T) {
-	var reqErr error
-
-	ctx := context.Background()
-	reqErr = GetRequestError(ctx)
-	if reqErr != nil {
-		t.Errorf("expected nothing, got %s", reqErr)
-	}
-
-	ctx = context.WithValue(ctx, ContextKeyRequestError, "testString")
-	reqErr = GetRequestError(ctx)
-	if reqErr != nil {
-		t.Errorf("expected nothing, got %s", reqErr)
-	}
-
-	requestError := fmt.Errorf("test error")
-	ctx = context.WithValue(ctx, ContextKeyRequestError, requestError)
-	reqErr = GetRequestError(ctx)
-	if reqErr != requestError {
-		t.Errorf("expected %s, got %s", requestError, reqErr)
-	}
-}
 
 // nolint[:gocyclo]
 func TestLoggerCompleteness(t *testing.T) {
-	expectedNonEmptyFields := []string{
-		"http_scheme",
-		"http_proto",
-		"http_method",
-		"remote_addr",
-		"user_agent",
-		"host",
-		"uri",
-		"process_time",
-		"http_status",
-		"resp_length",
-	}
 	errTest := errors.New("test error")
 
 	tc := []struct {
-		name                   string
-		handler                http.HandlerFunc
-		expectedNonEmptyFields []string
-		expectedLogLevel       zapcore.Level
-		expectedHTTPStatus     int
-		withHTTPS              bool
+		name               string
+		handler            http.HandlerFunc
+		expectedLogLevel   zerolog.Level
+		expectedHTTPStatus int
+		withHTTPS          bool
+		withRequestID      bool
 	}{
 		{
 			name: "classic request log",
@@ -68,9 +32,8 @@ func TestLoggerCompleteness(t *testing.T) {
 				func(w http.ResponseWriter, req *http.Request) {
 					w.WriteHeader(http.StatusOK)
 				}),
-			expectedNonEmptyFields: expectedNonEmptyFields,
-			expectedLogLevel:       zap.InfoLevel,
-			expectedHTTPStatus:     http.StatusOK,
+			expectedLogLevel:   zerolog.InfoLevel,
+			expectedHTTPStatus: http.StatusOK,
 		},
 		{
 			name: "request log with error",
@@ -85,9 +48,8 @@ func TestLoggerCompleteness(t *testing.T) {
 					)
 					w.WriteHeader(http.StatusInternalServerError)
 				}),
-			expectedNonEmptyFields: expectedNonEmptyFields,
-			expectedLogLevel:       zap.ErrorLevel,
-			expectedHTTPStatus:     http.StatusInternalServerError,
+			expectedLogLevel:   zerolog.ErrorLevel,
+			expectedHTTPStatus: http.StatusInternalServerError,
 		},
 		{
 			name: "request log with error as warning",
@@ -102,9 +64,8 @@ func TestLoggerCompleteness(t *testing.T) {
 					)
 					w.WriteHeader(http.StatusBadRequest)
 				}),
-			expectedNonEmptyFields: expectedNonEmptyFields,
-			expectedLogLevel:       zap.WarnLevel,
-			expectedHTTPStatus:     http.StatusBadRequest,
+			expectedLogLevel:   zerolog.WarnLevel,
+			expectedHTTPStatus: http.StatusBadRequest,
 		},
 		{
 			name: "request log with requestID",
@@ -114,14 +75,14 @@ func TestLoggerCompleteness(t *testing.T) {
 						context.WithValue(
 							req.Context(),
 							ContextKeyRequestID,
-							ksuid.New().String(),
+							xid.New().String(),
 						),
 					)
 					w.WriteHeader(http.StatusOK)
 				}),
-			expectedNonEmptyFields: expectedNonEmptyFields,
-			expectedLogLevel:       zap.InfoLevel,
-			expectedHTTPStatus:     http.StatusOK,
+			expectedLogLevel:   zerolog.InfoLevel,
+			expectedHTTPStatus: http.StatusOK,
+			withRequestID:      true,
 		},
 		{
 			name: "404 request log",
@@ -129,9 +90,8 @@ func TestLoggerCompleteness(t *testing.T) {
 				func(w http.ResponseWriter, req *http.Request) {
 					w.WriteHeader(http.StatusNotFound)
 				}),
-			expectedNonEmptyFields: expectedNonEmptyFields,
-			expectedLogLevel:       zap.InfoLevel,
-			expectedHTTPStatus:     http.StatusNotFound,
+			expectedLogLevel:   zerolog.InfoLevel,
+			expectedHTTPStatus: http.StatusNotFound,
 		},
 		{
 			name: "400 request log",
@@ -139,9 +99,8 @@ func TestLoggerCompleteness(t *testing.T) {
 				func(w http.ResponseWriter, req *http.Request) {
 					w.WriteHeader(http.StatusBadRequest)
 				}),
-			expectedNonEmptyFields: expectedNonEmptyFields,
-			expectedLogLevel:       zap.InfoLevel,
-			expectedHTTPStatus:     http.StatusBadRequest,
+			expectedLogLevel:   zerolog.InfoLevel,
+			expectedHTTPStatus: http.StatusBadRequest,
 		},
 		{
 			name: "https request log",
@@ -149,7 +108,7 @@ func TestLoggerCompleteness(t *testing.T) {
 				func(w http.ResponseWriter, req *http.Request) {
 					w.WriteHeader(http.StatusOK)
 				}),
-			expectedLogLevel:   zap.InfoLevel,
+			expectedLogLevel:   zerolog.InfoLevel,
 			withHTTPS:          true,
 			expectedHTTPStatus: http.StatusOK,
 		},
@@ -157,10 +116,8 @@ func TestLoggerCompleteness(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, observedLogs := observer.New(zapcore.InfoLevel)
-			defer logger.Sync() // flushes buffer, if any
-			sugar := zap.New(logger).Sugar()
-			midWared := Logger(sugar)(tt.handler)
+			out := &bytes.Buffer{}
+			midWared := Logger(zerolog.New(out))(tt.handler)
 			rr := httptest.NewRecorder()
 			r := httptest.NewRequest("GET", "/", nil)
 			r.RemoteAddr = "127.0.0.1"
@@ -170,55 +127,39 @@ func TestLoggerCompleteness(t *testing.T) {
 			}
 			midWared.ServeHTTP(rr, r)
 
-			allLogs := observedLogs.All()
-			if len(allLogs) != 1 {
-				t.Errorf("got %d logs instead of 1", len(allLogs))
+			logRes := make(map[string]interface{})
+			if err := json.Unmarshal(out.Bytes(), &logRes); err != nil {
+				t.Fatalf("error unmarshalling log %v", err)
 				return
 			}
 
-			if tt.expectedLogLevel != allLogs[0].Level {
+			if tt.expectedLogLevel.String() != logRes["level"].(string) {
 				t.Errorf(
-					"wrong log level, expected %v, got %v",
-					tt.expectedLogLevel, allLogs[0].Level,
+					"wrong log level, expected %s, got %s",
+					tt.expectedLogLevel.String(), logRes["level"].(string),
 				)
 				return
 			}
 
-			for _, f := range allLogs[0].Context {
+			// Check all existing fields
+			if float64(tt.expectedHTTPStatus) != logRes["http_status"].(float64) {
+				t.Errorf(
+					"wrong httpstatus, expected %d, got %f",
+					tt.expectedLogLevel,
+					logRes["http_status"].(float64),
+				)
+				return
+			}
 
-				switch f.Key {
-				case "scheme":
-					if tt.withHTTPS && f.String != "https" {
-						t.Errorf(
-							"wrong http scheme detected, expected %s, got %s",
-							"https",
-							f.String,
-						)
-						return
-					}
-				case "http_status":
-					if int64(tt.expectedHTTPStatus) != f.Integer {
-						t.Errorf(
-							"wrong http status, expected %d, got %d",
-							tt.expectedHTTPStatus,
-							f.Integer,
-						)
-						return
-					}
+			if tt.withRequestID {
+				val, ok := logRes["request_id"]
+				if !ok {
+					t.Errorf("expected a request id, got nothing")
+					return
 				}
-
-				for _, field := range tt.expectedNonEmptyFields {
-					found := false
-					for _, f := range allLogs[0].Context {
-						if f.Key == field {
-							found = true
-						}
-					}
-					if !found {
-						t.Errorf("missing field %s in log", field)
-						return
-					}
-
+				if val == "" {
+					t.Errorf("expected a request id, got nothing")
+					return
 				}
 			}
 		})
@@ -237,14 +178,4 @@ func Test_augmentedResponseWriter_Write(t *testing.T) {
 		return
 	}
 
-}
-
-func TestSetRequestError(t *testing.T) {
-	err := fmt.Errorf("test")
-	req := httptest.NewRequest("GET", "/", nil)
-	SetRequestError(req, err)
-	if GetRequestError(req.Context()) != err {
-		t.Errorf("SetRequestError didn't set the error in the context")
-		return
-	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/segmentio/ksuid"
+	"github.com/rs/xid"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 func RequestID() func(http.Handler) http.Handler {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			requestID := ksuid.New()
+			requestID := xid.New()
 			w.Header().Add("requestID", requestID.String())
 			ctx := context.WithValue(
 				r.Context(),
