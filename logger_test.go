@@ -109,7 +109,7 @@ func TestLogger(t *testing.T) {
 			logger, hook := test.NewNullLogger()
 			midWared := Logger(logger)(tt.handler)
 			rr := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", ``, nil)
+			r := httptest.NewRequest(http.MethodGet, `/`, nil)
 			r.RemoteAddr = "127.0.0.1"
 			r.Header.Set("User-Agent", "test")
 			if tt.withHTTPS {
@@ -234,7 +234,7 @@ func TestLoggerData(t *testing.T) {
 			logger, hook := test.NewNullLogger()
 			midWared := Logger(logger)(tt.handler)
 			rr := httptest.NewRecorder()
-			r, _ := http.NewRequest("GET", ``, nil)
+			r := httptest.NewRequest(http.MethodGet, `/`, nil)
 			r.RemoteAddr = "127.0.0.1"
 			r.Header.Set("User-Agent", "test")
 			midWared.ServeHTTP(rr, r)
@@ -284,20 +284,53 @@ func TestLoggerData(t *testing.T) {
 }
 
 func TestAddToRequestLog(t *testing.T) {
-	f := func(ctx context.Context) interface{} { return "fish" }
-	fakeHandler := http.HandlerFunc(
-		func(w http.ResponseWriter, req *http.Request) {},
-	)
-	midWared := AddToRequestLog("fish", f)(fakeHandler)
-	request := httptest.NewRequest("GET", `/`, nil)
+	fFish := func(ctx context.Context) interface{} { return "fish" }
+	fNil := func(ctx context.Context) interface{} { return nil }
+	tc := []struct {
+		name          string
+		f             func(context.Context) interface{}
+		expectedKey   string
+		expectedValue interface{}
+	}{
+		{
+			name:          "f returns a value",
+			f:             fFish,
+			expectedKey:   "fish",
+			expectedValue: "fish",
+		},
+		{
+			name:          "f returns no value",
+			f:             fNil,
+			expectedKey:   "fish",
+			expectedValue: nil,
+		},
+	}
 
-	midWared.ServeHTTP(nil, request)
-	if !reflect.DeepEqual(
-		GetAddToRequestLog(request.Context()),
-		map[string]interface{}{"fish": "fish"},
-	) {
-		t.Errorf("AddToRequestLog didn't add the field to the context")
-		return
+	for _, tt := range tc {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeHandler := http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {},
+			)
+			midWared := AddToRequestLog(tt.expectedKey, tt.f)(fakeHandler)
+			request := httptest.NewRequest(http.MethodGet, `/`, nil)
+
+			midWared.ServeHTTP(nil, request)
+			ct := GetAddToRequestLog(request.Context())
+			if tt.expectedValue == nil {
+				if _, ok := ct[tt.expectedKey]; ok {
+					t.Errorf(
+						"AddToRequestLog didn't added an empty field",
+					)
+					return
+				}
+			} else if !reflect.DeepEqual(
+				ct,
+				map[string]interface{}{tt.expectedKey: tt.expectedValue},
+			) {
+				t.Errorf("AddToRequestLog didn't add the field to the context")
+				return
+			}
+		})
 	}
 }
 

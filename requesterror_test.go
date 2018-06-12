@@ -3,6 +3,7 @@ package gohttpmw
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
@@ -32,7 +33,7 @@ func TestGetRequestError(t *testing.T) {
 
 func TestSetRequestError(t *testing.T) {
 	err := fmt.Errorf("test")
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	SetRequestError(req, err)
 	if GetRequestError(req.Context()) != err {
 		t.Errorf("SetRequestError didn't set the error in the context")

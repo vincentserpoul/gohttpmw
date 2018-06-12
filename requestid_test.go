@@ -15,10 +15,7 @@ func TestRequestID(t *testing.T) {
 	)
 	midWared := RequestID()(fakeHandler)
 	rr := httptest.NewRecorder()
-	request, errR := http.NewRequest("GET", ``, nil)
-	if errR != nil {
-		t.Fatalf("request creation failed %v", errR)
-	}
+	request := httptest.NewRequest(http.MethodGet, `/`, nil)
 
 	midWared.ServeHTTP(rr, request)
 	if rr.Header().Get("requestID") == "" {

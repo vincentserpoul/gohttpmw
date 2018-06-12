@@ -80,7 +80,9 @@ func AddToRequestLog(
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			a := GetAddToRequestLog(r.Context())
-			a[k] = f(r.Context())
+			if v := f(r.Context()); v != nil {
+				a[k] = v
+			}
 			ctx := context.WithValue(
 				r.Context(),
 				ContextKeyAddToRequestLog,
