@@ -17,10 +17,9 @@ You need to specify the function that will get the role name from the context.
 
 depends on
 
-- github.com/segmentio/ksuid
+- github.com/rs/xid
 
 Set a request id in the context as well as the header.
-We use ksuid as it's a sortable uinque identifier that is only 20-bytes wide.
 
 ## Security
 
@@ -29,5 +28,7 @@ These are not sufficient, you will need to add more according to the context of 
 
 ## Logger
 
+If you want performance, use LoggerZero.
+Otherwise, simply use logrus.
 Add logs to the request
 _If you use other middlewares, make sure they don't change the reference to the request_

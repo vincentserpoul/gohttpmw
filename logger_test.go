@@ -1,30 +1,32 @@
 package gohttpmw
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/rs/xid"
-	"github.com/rs/zerolog"
+
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 )
 
-// nolint[:gocyclo]
-func TestLoggerCompleteness(t *testing.T) {
+func TestLogger(t *testing.T) {
+	expectedNonEmptyFields := []string{"http_scheme",
+		"http_proto", "http_method", "remote_addr", "user_agent", "uri",
+		"process_time", "http_status", "resp_length"}
 	errTest := errors.New("test error")
 
 	tc := []struct {
-		name               string
-		handler            http.HandlerFunc
-		expectedLogLevel   zerolog.Level
-		expectedHTTPStatus int
-		withHTTPS          bool
-		withRequestID      bool
+		name                   string
+		handler                http.HandlerFunc
+		expectedNonEmptyFields []string
+		expectedLogLevel       logrus.Level
+		expectedHTTPStatus     int
+		withHTTPS              bool
 	}{
 		{
 			name: "classic request log",
@@ -32,8 +34,9 @@ func TestLoggerCompleteness(t *testing.T) {
 				func(w http.ResponseWriter, req *http.Request) {
 					w.WriteHeader(http.StatusOK)
 				}),
-			expectedLogLevel:   zerolog.InfoLevel,
-			expectedHTTPStatus: http.StatusOK,
+			expectedNonEmptyFields: expectedNonEmptyFields,
+			expectedLogLevel:       logrus.InfoLevel,
+			expectedHTTPStatus:     http.StatusOK,
 		},
 		{
 			name: "request log with error",
@@ -48,11 +51,32 @@ func TestLoggerCompleteness(t *testing.T) {
 					)
 					w.WriteHeader(http.StatusInternalServerError)
 				}),
-			expectedLogLevel:   zerolog.ErrorLevel,
-			expectedHTTPStatus: http.StatusInternalServerError,
+			expectedNonEmptyFields: expectedNonEmptyFields,
+			expectedLogLevel:       logrus.ErrorLevel,
+			expectedHTTPStatus:     http.StatusInternalServerError,
 		},
 		{
-			name: "request log with error as warning",
+			name: "404 request log",
+			handler: http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {
+					w.WriteHeader(http.StatusNotFound)
+				}),
+			expectedNonEmptyFields: expectedNonEmptyFields,
+			expectedLogLevel:       logrus.InfoLevel,
+			expectedHTTPStatus:     http.StatusNotFound,
+		},
+		{
+			name: "400 request log",
+			handler: http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {
+					w.WriteHeader(http.StatusBadRequest)
+				}),
+			expectedNonEmptyFields: expectedNonEmptyFields,
+			expectedLogLevel:       logrus.InfoLevel,
+			expectedHTTPStatus:     http.StatusBadRequest,
+		},
+		{
+			name: "400 request log with error",
 			handler: http.HandlerFunc(
 				func(w http.ResponseWriter, req *http.Request) {
 					*req = *req.WithContext(
@@ -64,43 +88,9 @@ func TestLoggerCompleteness(t *testing.T) {
 					)
 					w.WriteHeader(http.StatusBadRequest)
 				}),
-			expectedLogLevel:   zerolog.WarnLevel,
-			expectedHTTPStatus: http.StatusBadRequest,
-		},
-		{
-			name: "request log with requestID",
-			handler: http.HandlerFunc(
-				func(w http.ResponseWriter, req *http.Request) {
-					*req = *req.WithContext(
-						context.WithValue(
-							req.Context(),
-							ContextKeyRequestID,
-							xid.New().String(),
-						),
-					)
-					w.WriteHeader(http.StatusOK)
-				}),
-			expectedLogLevel:   zerolog.InfoLevel,
-			expectedHTTPStatus: http.StatusOK,
-			withRequestID:      true,
-		},
-		{
-			name: "404 request log",
-			handler: http.HandlerFunc(
-				func(w http.ResponseWriter, req *http.Request) {
-					w.WriteHeader(http.StatusNotFound)
-				}),
-			expectedLogLevel:   zerolog.InfoLevel,
-			expectedHTTPStatus: http.StatusNotFound,
-		},
-		{
-			name: "400 request log",
-			handler: http.HandlerFunc(
-				func(w http.ResponseWriter, req *http.Request) {
-					w.WriteHeader(http.StatusBadRequest)
-				}),
-			expectedLogLevel:   zerolog.InfoLevel,
-			expectedHTTPStatus: http.StatusBadRequest,
+			expectedNonEmptyFields: expectedNonEmptyFields,
+			expectedLogLevel:       logrus.WarnLevel,
+			expectedHTTPStatus:     http.StatusBadRequest,
 		},
 		{
 			name: "https request log",
@@ -108,7 +98,7 @@ func TestLoggerCompleteness(t *testing.T) {
 				func(w http.ResponseWriter, req *http.Request) {
 					w.WriteHeader(http.StatusOK)
 				}),
-			expectedLogLevel:   zerolog.InfoLevel,
+			expectedLogLevel:   logrus.InfoLevel,
 			withHTTPS:          true,
 			expectedHTTPStatus: http.StatusOK,
 		},
@@ -116,10 +106,10 @@ func TestLoggerCompleteness(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			out := &bytes.Buffer{}
-			midWared := Logger(zerolog.New(out))(tt.handler)
+			logger, hook := test.NewNullLogger()
+			midWared := Logger(logger)(tt.handler)
 			rr := httptest.NewRecorder()
-			r := httptest.NewRequest("GET", "/", nil)
+			r, _ := http.NewRequest("GET", ``, nil)
 			r.RemoteAddr = "127.0.0.1"
 			r.Header.Set("User-Agent", "test")
 			if tt.withHTTPS {
@@ -127,38 +117,38 @@ func TestLoggerCompleteness(t *testing.T) {
 			}
 			midWared.ServeHTTP(rr, r)
 
-			logRes := make(map[string]interface{})
-			if err := json.Unmarshal(out.Bytes(), &logRes); err != nil {
-				t.Fatalf("error unmarshalling log %v", err)
+			if len(hook.Entries) > 1 {
+				t.Errorf("got %d logs instead of 1", len(hook.Entries))
 				return
 			}
 
-			if tt.expectedLogLevel.String() != logRes["level"].(string) {
+			if tt.expectedLogLevel != hook.LastEntry().Level {
 				t.Errorf(
-					"wrong log level, expected %s, got %s",
-					tt.expectedLogLevel.String(), logRes["level"].(string),
+					"wrong log level, expected %v, got %v",
+					tt.expectedLogLevel, hook.LastEntry().Level,
 				)
 				return
 			}
 
-			// Check all existing fields
-			if float64(tt.expectedHTTPStatus) != logRes["http_status"].(float64) {
+			if tt.withHTTPS && hook.LastEntry().Data["http_scheme"] != "https" {
 				t.Errorf(
-					"wrong httpstatus, expected %d, got %f",
-					tt.expectedLogLevel,
-					logRes["http_status"].(float64),
+					"wrong http scheme detected, expected https, got %s",
+					hook.LastEntry().Data["http_scheme"],
 				)
 				return
 			}
 
-			if tt.withRequestID {
-				val, ok := logRes["request_id"]
-				if !ok {
-					t.Errorf("expected a request id, got nothing")
-					return
-				}
-				if val == "" {
-					t.Errorf("expected a request id, got nothing")
+			if hook.LastEntry().Data["http_status"] != tt.expectedHTTPStatus {
+				t.Errorf(
+					"wrong http status, expected %d, got %d",
+					tt.expectedHTTPStatus, hook.LastEntry().Data["http_status"],
+				)
+				return
+			}
+
+			for _, field := range tt.expectedNonEmptyFields {
+				if hook.LastEntry().Data[field] == nil {
+					t.Errorf("missing field %s in log", field)
 					return
 				}
 			}
@@ -166,16 +156,107 @@ func TestLoggerCompleteness(t *testing.T) {
 	}
 }
 
-func Test_augmentedResponseWriter_Write(t *testing.T) {
-	rr := httptest.NewRecorder()
-	arw := newAugmentedResponseWriter(rr)
-	testS := []byte("test")
-	_, _ = arw.Write(testS)
-	if arw.length != len(testS) {
-		t.Errorf("augmentedResponseWriter.Write() length %d instead of %d",
-			arw.length, len(testS),
-		)
-		return
+func TestLoggerData(t *testing.T) {
+	reqIDTest := xid.New()
+	tc := []struct {
+		name                string
+		handler             http.HandlerFunc
+		requestID           xid.ID
+		requestErrorMessage string
+		expectedLen         int
+	}{
+		{
+			name: "classic request log",
+			handler: http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}),
+			requestErrorMessage: "",
+		},
+		{
+			name: "classic request log with request ID",
+			handler: http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {
+					*req = *req.WithContext(
+						context.WithValue(
+							req.Context(),
+							ContextKeyRequestID,
+							reqIDTest.String(),
+						),
+					)
+				}),
+			requestErrorMessage: "",
+			requestID:           reqIDTest,
+		},
+		{
+			name: "classic request log with some bytes written",
+			handler: http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {
+					_, _ = w.Write([]byte{0x00})
+				}),
+			requestErrorMessage: "",
+			expectedLen:         1,
+		},
+		{
+			name: "request log with error",
+			handler: http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {
+					*req = *req.WithContext(
+						context.WithValue(
+							req.Context(),
+							ContextKeyRequestError,
+							errors.New("test error big"),
+						),
+					)
+					w.WriteHeader(http.StatusInternalServerError)
+				}),
+			requestErrorMessage: "test error big",
+		},
 	}
 
+	for _, tt := range tc {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			midWared := Logger(logger)(tt.handler)
+			rr := httptest.NewRecorder()
+			r, _ := http.NewRequest("GET", ``, nil)
+			r.RemoteAddr = "127.0.0.1"
+			r.Header.Set("User-Agent", "test")
+			midWared.ServeHTTP(rr, r)
+
+			if len(hook.Entries) > 1 {
+				t.Errorf("got %d logs instead of 1", len(hook.Entries))
+				return
+			}
+
+			if tt.requestID != (xid.ID{}) {
+				val, ok := hook.LastEntry().Data["request_id"]
+				if !ok {
+					t.Errorf("missing requestid")
+					return
+				}
+				if val != tt.requestID.String() {
+					t.Errorf(
+						"missing requestid, expected %s, got %s",
+						tt.requestID, val)
+					return
+				}
+			}
+
+			if string(hook.LastEntry().Message) != tt.requestErrorMessage {
+				t.Errorf(
+					"missing error message `%s` in log, got `%s`",
+					tt.requestErrorMessage, hook.LastEntry().Message)
+				return
+			}
+
+			if tt.expectedLen != hook.LastEntry().Data["resp_length"] {
+				t.Errorf(
+					"expected length %d got %d",
+					tt.expectedLen, hook.LastEntry().Data["resp_length"])
+				return
+			}
+
+		})
+	}
 }
