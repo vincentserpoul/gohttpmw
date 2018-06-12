@@ -6,10 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/rs/xid"
-
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 )
@@ -163,6 +163,7 @@ func TestLoggerData(t *testing.T) {
 		handler             http.HandlerFunc
 		requestID           xid.ID
 		requestErrorMessage string
+		withRequestAdd      bool
 		expectedLen         int
 	}{
 		{
@@ -212,6 +213,20 @@ func TestLoggerData(t *testing.T) {
 				}),
 			requestErrorMessage: "test error big",
 		},
+		{
+			name: "request log with additional fields",
+			handler: http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) {
+					*req = *req.WithContext(
+						context.WithValue(
+							req.Context(),
+							ContextKeyAddToRequestLog,
+							map[string]interface{}{"fish": "fish"},
+						),
+					)
+				}),
+			withRequestAdd: true,
+		},
 	}
 
 	for _, tt := range tc {
@@ -257,6 +272,50 @@ func TestLoggerData(t *testing.T) {
 				return
 			}
 
+			if tt.withRequestAdd {
+				if hook.LastEntry().Data["fish"] != "fish" {
+					t.Errorf("expected additional field but none present")
+					return
+				}
+			}
+
 		})
+	}
+}
+
+func TestAddToRequestLog(t *testing.T) {
+	f := func(ctx context.Context) interface{} { return "fish" }
+	fakeHandler := http.HandlerFunc(
+		func(w http.ResponseWriter, req *http.Request) {},
+	)
+	midWared := AddToRequestLog("fish", f)(fakeHandler)
+	request := httptest.NewRequest("GET", `/`, nil)
+
+	midWared.ServeHTTP(nil, request)
+	if !reflect.DeepEqual(
+		GetAddToRequestLog(request.Context()),
+		map[string]interface{}{"fish": "fish"},
+	) {
+		t.Errorf("AddToRequestLog didn't add the field to the context")
+		return
+	}
+}
+
+func TestGetAddToRequestLog(t *testing.T) {
+	ctx := context.Background()
+	if !reflect.DeepEqual(
+		GetAddToRequestLog(ctx),
+		map[string]interface{}{},
+	) {
+		t.Errorf("AddToRequestLog didn't add the field to the context")
+		return
+	}
+
+	testATL := map[string]interface{}{"fish": "fish"}
+	if atl := GetAddToRequestLog(
+		context.WithValue(ctx, ContextKeyAddToRequestLog, testATL),
+	); !reflect.DeepEqual(atl, testATL) {
+		t.Errorf("expected %v, got %v", testATL, atl)
+		return
 	}
 }

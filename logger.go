@@ -1,6 +1,7 @@
 package gohttpmw
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -44,6 +45,12 @@ func Logger(l *logrus.Logger) func(http.Handler) http.Handler {
 				logFields["request_id"] = reqID
 			}
 
+			// Get additional logging fields
+			atl := GetAddToRequestLog(r.Context())
+			for k, v := range atl {
+				logFields[k] = v
+			}
+
 			reqErr := GetRequestError(r.Context())
 			if reqErr != nil {
 				// Get response status and size
@@ -58,4 +65,40 @@ func Logger(l *logrus.Logger) func(http.Handler) http.Handler {
 			l.WithFields(logFields).Infoln()
 		})
 	}
+}
+
+const (
+	// ContextKeyAddToRequestLog allow storage of additional log fields in the context
+	ContextKeyAddToRequestLog = ContextKey("AddToLog")
+)
+
+// AddToRequestLog allows to add more fields to the request log
+func AddToRequestLog(
+	k string,
+	f func(context.Context) interface{},
+) func(http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			a := GetAddToRequestLog(r.Context())
+			a[k] = f(r.Context())
+			ctx := context.WithValue(
+				r.Context(),
+				ContextKeyAddToRequestLog,
+				a,
+			)
+			*r = *r.WithContext(ctx)
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
+// GetAddToRequestLog will retrieve the fileds to be added to the log
+func GetAddToRequestLog(ctx context.Context) map[string]interface{} {
+	if addToLog, ok := ctx.Value(
+		ContextKeyAddToRequestLog,
+	).(map[string]interface{}); ok {
+		return addToLog
+	}
+
+	return make(map[string]interface{})
 }
