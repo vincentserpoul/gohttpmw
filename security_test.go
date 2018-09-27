@@ -30,7 +30,4 @@ func TestSecurity(t *testing.T) {
 	if rr.Header().Get("Referrer-Policy") == "" {
 		t.Errorf("expected %s, got nothing", "same-origin")
 	}
-	if rr.Header().Get("Content-Security-Policy") == "" {
-		t.Errorf("expected %s, got nothing", "default-src 'self';")
-	}
 }

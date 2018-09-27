@@ -12,7 +12,6 @@ func Security() func(http.Handler) http.Handler {
 			w.Header().Add("X-Content-Type-Options", "nosniff")
 			w.Header().Add("X-XSS-Protection", "1; mode=block")
 			w.Header().Add("Referrer-Policy", "same-origin")
-			w.Header().Add("Content-Security-Policy", "default-src 'self';")
 
 			h.ServeHTTP(w, r)
 		})
